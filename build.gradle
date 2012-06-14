@@ -1,0 +1,25 @@
+apply plugin: 'java'
+apply plugin: 'idea'
+apply plugin: 'eclipse'
+apply plugin: 'application'
+mainClassName = 'org.ros.RosRun'
+
+sourceCompatibility = 1.7
+targetCompatibility = 1.7
+
+repositories {
+    mavenLocal()
+    maven {
+        url 'http://robotbrains.hideho.org/nexus/content/groups/ros-public'
+    }
+}
+
+version = '0.0.1'
+group = 'barc.ex'
+
+dependencies {
+    compile 'barc.subsumption:subsumption:0.0.1'
+    compile 'ros.rosjava_core:rosjava:0.0.0-SNAPSHOT'
+    testCompile 'junit:junit:4.+'
+}
+
