@@ -9,6 +9,7 @@ import org.ros.message.MessageListener;
 import org.ros.namespace.GraphName;
 import org.ros.node.AbstractNodeMain;
 import org.ros.node.ConnectedNode;
+import org.ros.node.parameter.ParameterTree;
 import org.ros.node.topic.Publisher;
 import org.ros.node.topic.Subscriber;
 import sensor_msgs.LaserScan;
@@ -33,7 +34,7 @@ public class ReactiveMover extends AbstractNodeMain {
     private Direction direction;
     private double maxScanHalf, left, right;
 
-    @java.lang.Override
+    @Override
     public GraphName getDefaultNodeName() {
         return new GraphName("reactive_mover");
     }
@@ -42,17 +43,37 @@ public class ReactiveMover extends AbstractNodeMain {
     public void onStart(ConnectedNode node) {
         final Log log = node.getLog();
 
-        // Set up subscriber
-        final String laserTopic = node.getParameterTree().getString("laser_topic", "base_scan");
+        /*
+         Get settings from parameter server:
+
+         This allows for more flexible nodes because settings can be changed
+         in configuration files without the need to recompile the code.
+         */
+        ParameterTree params = node.getParameterTree();
+        final String laserTopic = params.getString("laser_topic", "base_scan");
+        final String twistTopic = params.getString("twist_topic", "cmd_vel");
+        final double forwardSpeed = params.getDouble("forward_speed", 0.1);
+        final double turningSpeed = params.getDouble("turning_speed", 0.5);
+
+        /*
+        Set up subscriber:
+
+        The subscriber will do some simple processing for us. It will determine
+        which direction has more free space. Notice that with the lasers we use,
+        the value will be 0.0 if the distance being measured is beyond its maximum
+        distance, hence we simply make it the max distance because we want to head
+        towards open space.
+        */
         final Subscriber<LaserScan> laserSubscriber = node.newSubscriber(laserTopic, LaserScan._TYPE);
         laserSubscriber.addMessageListener(new MessageListener<LaserScan>() {
             @Override
             public void onNewMessage(LaserScan scan) {
                 for (int i = 0; i < scan.getRanges().length; i++) {
+                    double val = (scan.getRanges()[i] == 0.0) ? scan.getRangeMax() : scan.getRanges()[i];
                     if (i < scan.getRanges().length / 2)
-                        left += scan.getRanges()[i];
+                        left += val;
                     else
-                        right += scan.getRanges()[i];
+                        right += val;
                 }
 
                 direction = (left > right) ? Direction.LEFT : Direction.RIGHT;
@@ -60,13 +81,25 @@ public class ReactiveMover extends AbstractNodeMain {
             }
         });
 
+        /*
+        Setup publisher:
 
-        // Setup publisher
-        String twistTopic = node.getParameterTree().getString("twist_topic", "cmd_vel");
+        Our publisher will publish movement commands to the robot, known as
+        Twist messages.
+        */
         final Publisher<Twist> twistPublisher = node.newPublisher(twistTopic, Twist._TYPE);
 
-        // Setup behaviors. Will do this in place since the behaviors are so simple.
+        /*
+        Setup behaviors:
+
+        We will do this in place since the behaviors are so simple. There are only
+        two behaviors which we need to create, a left arc and a right arc. The arbitrator
+        will run through these two behaviors and execute whichever one has its criterion
+        for execution met.
+        */
         List<Behavior> behaviors = new ArrayList<>();
+
+        // Create & add left turning behavior
         behaviors.add(new Behavior() {
             @Override
             public boolean canRun() {
@@ -91,6 +124,7 @@ public class ReactiveMover extends AbstractNodeMain {
             public void stop() { }
         });
 
+        // Create & add right turning behavior
         behaviors.add(new Behavior() {
             @Override
             public boolean canRun() {
